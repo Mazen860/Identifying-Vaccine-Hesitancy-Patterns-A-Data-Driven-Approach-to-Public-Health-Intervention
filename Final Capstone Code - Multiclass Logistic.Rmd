@@ -1,0 +1,1182 @@
+---
+title: "Capstone"
+author: "Jun Ming Li"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Libraries used
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(rpart)
+library(randomForest)
+library(readxl)
+```
+
+
+#Look at the data
+```{r}
+#Load the dataset
+# flu <- read.csv("h1n1_fulldataset_CLEANED.csv") 
+flu <- read.csv("h1n1_fulldataset_CLEANED_labels.csv") 
+# This is all the datas from the competition put together, but we only need the labeled rows as our full dataset
+# we are looking for the first 26707 rows
+
+# confirmation
+flu$h1n1_vaccine[[26707]]
+flu$h1n1_vaccine[[26708]]
+
+summary(flu)
+str(flu)
+head(flu)
+
+
+# Check for NA values in the entire dataset
+colSums(is.na(flu))
+
+# Check if there are any NULLs (NULLs are rare in data frames but good to check)
+any(sapply(flu,is.null))
+
+
+
+```
+
+
+
+
+#format data
+```{r}
+
+# format variables
+
+## remove unnecessary variables
+flu <- flu %>% dplyr::select(-c(respondent_id))
+# These variables are removed for the following reasons:
+# this is just an identification key
+
+## Look at interesting variables
+unique(flu$age_group)
+#  "55 - 64 Years" "35 - 44 Years" "18 - 34 Years" "65+ Years"     "45 - 54 Years"
+unique(flu$education)
+# "< 12 Years"       "12 Years"         "College Graduate" "Some College"  
+
+unique(flu$income_poverty)
+# <= $75,000, Above Poverty > $75,000 Below Poverty
+
+unique(flu$household_adults)
+# 0 1 2 3
+
+unique(flu$marital_status)
+# married or not married
+
+unique(flu$employment_status) # employed, unemployed, not in labor force
+
+levels(flu$employment_industry) # 21 levels
+levels(flu$employment_occupation) # 23 levels
+
+
+
+levels(flu$employment_occupation) # 23 levels
+
+
+
+
+
+
+
+## define categorical variables
+flu <- flu %>% mutate(across(where(is.integer), as.factor))
+flu <- flu %>% mutate(across(where(is.character), as.factor))
+
+
+head(flu)
+str(flu)
+# possible issue with  industry and occupation variables. We may need to remove that. 
+
+
+
+
+# This code will subset the portion of the data that will be our full data set, the first 26707 rows
+flu_labels <- flu %>% filter(h1n1_vaccine == 1|h1n1_vaccine == 0)
+
+
+
+# Flu is our whole data set, but does not include all the labels for everyone (no vaccination status provided for testing)
+# flu_labels is our training data set with vaccination status
+
+
+
+
+# Create new column for vaccination status
+# 1 = no vaccination, 2 = h1n1vaccine, 3 = seasonal vaccine, 4 = both
+
+
+flu_labels$Vaccination_General <- case_when(flu_labels$h1n1_vaccine == 0 & flu_labels$seasonal_vaccine == 0 ~ 0,
+                                              flu_labels$h1n1_vaccine == 1 & flu_labels$seasonal_vaccine == 0 ~ 1,
+                                              flu_labels$h1n1_vaccine == 0 & flu_labels$seasonal_vaccine == 1 ~ 2,
+                                              flu_labels$h1n1_vaccine == 1 & flu_labels$seasonal_vaccine == 1 ~ 3)
+
+flu_labels$Vaccination_General <- as.factor(flu_labels$Vaccination_General)
+
+
+
+# 
+# flu_labels$doctor_recc_General <- case_when(flu_labels$doctor_recc_h1n1 == 0 & flu_labels$doctor_recc_seasonal == 0 ~ 0,
+#                                               flu_labels$doctor_recc_h1n1 == 1 & flu_labels$doctor_recc_seasonal == 0 ~ 1,
+#                                               flu_labels$doctor_recc_h1n1 == 0 & flu_labels$doctor_recc_seasonal == 1 ~ 2,
+#                                               flu_labels$doctor_recc_h1n1 == 1 & flu_labels$doctor_recc_seasonal == 1 ~ 3)
+# 
+# flu_labels$doctor_recc_General <- as.factor(flu_labels$Vaccination_General)
+
+
+
+
+
+# remove
+flu_labels$h1n1_vaccine <- NULL
+flu_labels$seasonal_vaccine <- NULL
+# flu_labels$doctor_recc_h1n1 <- NULL
+# flu_labels$doctor_recc_seasonal <- NULL
+```
+
+
+# Save a copy of the data set to use.
+```{r}
+
+# write.csv(x = flu_labels, file = 'Final_h1n1_fulldataset_CLEANED_Labels.csv')
+
+```
+
+
+
+
+
+#EDA 
+```{r}
+
+## Subset the numerical and categorical variables for Flu
+numeric_var <- flu %>% dplyr::select(where(is.numeric))
+num_names   <- names(numeric_var)
+cat_var     <- flu %>% dplyr::select(-num_names)
+
+
+
+## Subset the numerical and categorical variables for flu_labels
+numeric_var2 <- flu_labels %>% dplyr::select(where(is.numeric))
+num_names2   <- names(numeric_var)
+cat_var2     <- flu_labels %>% dplyr::select(-num_names)
+
+
+# Flu is our whole data set, but does not include all the labels for everyone (no vaccination status provided for testing)
+# flu_labels is our training data set with vaccination status
+
+
+```
+
+
+
+
+
+# EDA Charts for flu_labels
+```{r}
+
+
+# str(flu_labels)
+# 
+# # create bar charts for all cat var
+#   for (var in names(cat_var2)) {
+#     print(ggplot(cat_var2, aes(x = cat_var2[[var]], fill = Vaccination_General)) +
+#     geom_bar() +
+#     labs(title = paste("Histogram of", var), x = var))
+# }
+
+# 1 = no vaccination, 2 = h1n1vaccine, 3 = seasonal vaccine, 4 = both?
+
+
+
+# h1n1 concern - highest level of concern has the lowest nonvac rates. 
+# h1n1 knowledge - surprising to see large number of nonvax know about h1n1 at the time.
+# avoidance behavior - high degree of nonvax in both categories
+# houshold_children - seems to be the highest % of nonvax in no children households
+# chronic medical condition - much higher % of nonvax for those without chronic conditions
+# Opinions on vaccination effectiveness - the less they believe is it effective, the higher the non vax rate
+# geo_region, race, education, age, occupation/employment - take a look at this through a % total, will need to do additional EDA for this
+
+
+```
+
+
+
+
+
+# Recombine the vaccination status to either no (0) or yes(1)?
+```{r}
+# Use ordered logit so that we can see the effects on each case
+
+
+# flu_labels$Vaccination_General <- as.integer(flu_labels$Vaccination_General)
+# 
+# flu_labels$Vaccination_General <- case_when(flu_labels$h1n1_vaccine == 0 & flu_labels$seasonal_vaccine == 0 ~ 0,
+#                                               flu_labels$h1n1_vaccine == 1 & flu_labels$seasonal_vaccine == 0 ~ 1,
+#                                               flu_labels$h1n1_vaccine == 0 & flu_labels$seasonal_vaccine == 1 ~ 1,
+#                                               flu_labels$h1n1_vaccine == 1 & flu_labels$seasonal_vaccine == 1 ~ 1)
+# 
+# flu_labels$Vaccination_General <- as.factor(flu_labels$Vaccination_General)
+# 
+
+```
+
+
+
+
+
+#EDA after recombining the statuses
+```{r}
+
+# Subset the numerical and categorical variables for Flu
+numeric_var <- flu %>% dplyr::select(where(is.numeric))
+num_names   <- names(numeric_var)
+cat_var     <- flu %>% dplyr::select(-num_names)
+
+
+
+## Subset the numerical and categorical variables for flu_labels
+numeric_var2 <- flu_labels %>% dplyr::select(where(is.numeric))
+num_names2   <- names(numeric_var)
+cat_var2     <- flu_labels %>% dplyr::select(-num_names)
+
+
+# Flu is our whole data set, but does not include all the labels for everyone (no vaccination status provided for testing)
+# flu_labels is our training data set with vaccination status
+
+
+```
+
+
+
+
+
+
+
+# EDA Charts after recombining the statuses
+```{r}
+
+# # create bar charts for all cat var
+#   for (var in names(cat_var2)) {
+#     print(ggplot(cat_var2, aes(x = cat_var2[[var]], fill = Vaccination_General)) +
+#     geom_bar() +
+#     labs(title = paste("Histogram of", var), x = var))
+# }
+```
+
+
+# Correlation matrix
+
+```{r}
+
+# install.packages('DescTools')
+
+# Load necessary libraries
+library(dplyr)
+library(DescTools)
+
+# Get the names of the categorical variables
+var_names <- names(cat_var2)
+n <- length(var_names)
+
+# Initialize an empty matrix to store corrected Cramer's V values
+cramer_matrix <- matrix(NA, nrow = n, ncol = n)
+rownames(cramer_matrix) <- var_names
+colnames(cramer_matrix) <- var_names
+
+# Loop through each pair of categorical variables to compute corrected Cramer's V
+for (i in 1:n) {
+  for (j in i:n) {
+    if (i == j) {
+      cramer_matrix[i, j] <- 1  # A variable is perfectly associated with itself
+    } else {
+      # Create a contingency table between variable i and variable j
+      tbl <- table(cat_var2[[i]], cat_var2[[j]])
+      # Compute corrected Cramer's V (with bias correction)
+      cv <- CramerV(tbl, bias.correct = TRUE)
+      cramer_matrix[i, j] <- cv
+      cramer_matrix[j, i] <- cv  # Fill in the symmetric element
+    }
+  }
+}
+
+# Print the corrected Cramer's V matrix
+print(cramer_matrix)
+
+
+
+library(ggplot2)
+library(reshape2)
+
+
+# Convert the matrix into long format data frame using melt()
+heatmap_df <- melt(cramer_matrix)
+
+# Create the heat map with ggplot2
+ggplot(heatmap_df, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Cramer's V - All Variables", 
+       x = NULL, 
+       y = NULL, 
+       fill = "Cramer's V") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), text = element_text(size=9))
+
+
+
+
+
+```
+
+
+
+
+## Partition data
+
+```{r}
+
+set.seed(123)
+
+# Partition data into training (70%) and testing (30%) data sets
+
+# create a sample of indexes
+flu_labels.rows <- nrow(flu_labels)
+flu_labels.index <- sample(flu_labels.rows, .7*flu_labels.rows)
+
+# create datasets using above randomly chosen indexes
+flu_labels.train <- flu_labels[flu_labels.index,]
+flu_labels.test  <- flu_labels[-flu_labels.index,]
+
+# confirm the total number of rows matches the above
+nrow(flu_labels.test) + nrow(flu_labels.train)
+
+
+```
+
+
+
+
+
+## Balance the data
+
+```{r}
+
+# str(flu_labels.train)
+
+table(flu_labels.train$Vaccination_General)
+table(flu_labels.train$Vaccination_General)/nrow(flu_labels.train)
+
+#   0    1    2    3 
+# 9256  693 5441 3304 
+# 
+#          0          1          2          3 
+# 0.49513213 0.03707072 0.29105595 0.17674120 
+
+
+# 0 = No vaccination at all
+# 1 = h1n1
+# 2 = seasonal
+# 3 = both vaccinated
+
+
+# we have 4 classes
+
+
+library(caret)
+
+# oversampling
+# Remove the outcome from the predictors.
+predictors <- flu_labels.train[, setdiff(names(flu_labels.train), "Vaccination_General")]
+
+# Use upSample to oversample the minority classes:
+balancedData <- upSample(x = predictors,
+                         y = flu_labels.train$Vaccination_General)
+
+# The resulting data frame will have all predictors and an outcome column named "Class"
+head(balancedData)
+table(balancedData$Class)
+
+
+
+# # undersampling
+# # Separate the predictors and the outcome variable.
+# predictors <- flu_labels.train[, setdiff(names(flu_labels.train), "Vaccination_General")]
+# outcome <- flu_labels.train$Vaccination_General
+# 
+# # Use downSample() to create a balanced dataset by undersampling the majority classes.
+# # The resulting data frame will include all predictors and an outcome column named "Class".
+# balancedData <- downSample(x = predictors, y = outcome)
+# 
+# # Check the distribution of the outcome in the balanced data.
+# table(balancedData$Class)
+
+
+
+
+# Save the balanced dataset
+flu_labels.train <- balancedData
+
+#Restore original variable
+flu_labels.train <- flu_labels.train %>% mutate(Vaccination_General = Class)
+flu_labels.train$Class <- NULL
+(table(flu_labels.train$Vaccination_General)) / nrow(flu_labels.train)
+
+
+#   0    1    2    3 
+# 9256  693 5441 3304 Before balance
+# 9256 9256 9256 9256 After Balance
+```
+
+
+
+
+# create file for balanced training dataset
+
+```{r}
+
+# #install.packages("writexl")
+# 
+# library(writexl)
+# 
+# # Downloading the training dataset
+# write.csv(x = flu_labels.train, file = 'balanced flu_labels.train.csv')
+
+
+```
+
+
+
+
+
+
+
+
+# Baseline accuracy
+```{r}
+
+table(flu_labels$Vaccination_General)
+
+#vaccination over non vax accuracy
+977 + 7738  + 4697 
+
+13295/(13295+13412) 
+# 50%
+ 
+977 /(13295+13412) 
+# 4%
+
+7738 /(13295+13412) 
+# 29%
+
+4697 /(13295+13412) 
+# 17%
+
+```
+
+
+
+
+
+
+# Multinominal Logistic Model with self selections
+
+```{r}
+
+# install.packages("nnet")
+
+library(nnet)
+
+
+
+#multinom# flu_labels.train$Vaccination_General
+
+logit.reg.mlr.ss <- multinom(Vaccination_General ~.
+
+
+-behavioral_avoidance
+-behavioral_large_gatherings
+-behavioral_touch_face
+-child_under_6_months
+-health_worker
+-employment_status
+-census_msa
+-employment_occupation
+
+, data =  flu_labels.train)
+summary(logit.reg.mlr.ss)
+
+# Look to see if there are potential outliers
+# plot(logit.reg.ss)
+
+
+
+
+```
+
+
+
+
+
+# Calculate Pvalues MNL regression and remove more variables based on pvalue with threshold > .05:
+
+```{r}
+
+
+# Display the summary of the final model selected by stepwise regression
+# summary(logit.reg.mlr.ss)
+
+# Extract coefficients and standard errors from the summary
+coefficients <- summary(logit.reg.mlr.ss)$coefficients
+std_err <- summary(logit.reg.mlr.ss)$standard.errors
+
+# Compute z-statistics: coefficient / standard error
+z_values <- coefficients / std_err
+
+# Calculate the two-tailed p-values based on the normal distribution:
+p_values <- 2 * (1 - pnorm(abs(z_values)))
+# print(p_values)
+
+
+
+# Define significance threshold
+alpha <- 0.05
+
+# Exclude the intercept column(s)
+p_vals_no_int <- p_values[, !grepl("(Intercept)", colnames(p_values)), drop = FALSE]
+
+# Define the predictor names (the prefixes in your coefficient names)
+
+namesall<-names(flu_labels.train)
+
+drop_names <- c("behavioral_avoidance", "behavioral_large_gatherings", "behavioral_touch_face",
+                "child_under_6_months", "health_worker", "employment_status",
+                "census_msa", "employment_occupation", "Vaccination_General")
+
+namesall <- namesall[!namesall %in% drop_names]
+
+
+predictor_names <- c(namesall)
+
+# Initialize vector to store names of predictors considered insignificant
+insignificant_predictors <- c()
+
+
+# Loop through each predictor and check its coefficients' p-values
+for (pred in predictor_names) {
+  # Get all columns whose names begin with the predictor name.
+  pred_cols <- grep(pred, colnames(p_vals_no_int), value = TRUE)
+  # Extract the corresponding p-values (this will be a submatrix; even if it's just one column)
+  p_vals_pred <- p_vals_no_int[, pred_cols, drop = FALSE]
+
+  # Check if all p-values for this predictor across all outcomes are > alpha.
+  if (all(p_vals_pred > alpha)) {
+    insignificant_predictors <- c(insignificant_predictors, pred)
+  }
+}
+
+# Print predictors that are not significant across the outcomes
+print("Predictors deemed insignificant (all levels p > alpha):")
+print(insignificant_predictors)
+
+
+
+```
+
+
+
+
+
+# Accuracy with self select multinominal model
+
+```{r}
+
+# Predicted.test.prob is a data frame with predicted probabilities for each class,
+# with columns named "0", "1", "2", and "3".
+predicted.test.prob <- predict(logit.reg.mlr.ss, newdata = flu_labels.test, type = "probs")
+predicted.test.prob <- data.frame(predicted.test.prob)
+head(predicted.test.prob)
+
+# Instead of using a 0.5 cutoff on each column (which returns 4 columns),
+# we select the class with the highest probability for each observation.
+# max.col() returns the column index of the maximum probability for each row.
+predicted_class <- colnames(predicted.test.prob)[max.col(predicted.test.prob, ties.method = "first")]
+
+# Convert to the class naming convention of Vaccination_General
+predicted_class <- ifelse(predicted_class == "X0",0,
+                   ifelse(predicted_class == "X1",1,
+                   ifelse(predicted_class == "X2",2,
+                   ifelse(predicted_class == "X3",3,"NA"))))
+
+
+
+# Convert the resulting character vector into a factor with the same levels as your reference variable.
+predicted_class <- factor(predicted_class, levels = levels(flu_labels.test$Vaccination_General))
+
+# Load the caret package and create the confusion matrix.
+library(caret)
+confusionMatrix(data = predicted_class, reference = flu_labels.test$Vaccination_General)
+
+
+
+# Checking the AUC for a multinomial logistic regression
+library(pROC)
+
+# Calculate multiclass ROC.
+# The 'predicted.test.prob' should be a matrix (or data frame) of class probabilities,
+# with one column per class.
+predicted.test.prob <- predict(logit.reg.mlr.ss, newdata = flu_labels.test, type = "probs")
+roc_multi <- multiclass.roc(flu_labels.test$Vaccination_Genera, predicted.test.prob)
+
+# Print the overall AUC (this is an average of the pairwise AUCs)
+auc_multi <- auc(roc_multi)
+print(paste("Multiclass AUC:", auc_multi))
+
+# Plot one of the pairwise ROC curves (for example, the first one).
+# Note: Each element in 'roc_multi$rocs' corresponds to a one-vs-one ROC.
+
+table(flu_labels.test$Vaccination_General)
+
+# roc_multi$rocs[[1]][[2]]
+# roc_multi$rocs[[2]][[2]]
+# roc_multi$rocs[[3]][[2]]
+
+
+plot(roc_multi$rocs[[1]][[2]], col='red' ,main="ROC Curve (Pairwise) for Multinomial Logistic Regression")
+plot(roc_multi$rocs[[2]][[2]],col = 'blue', add=TRUE)
+plot(roc_multi$rocs[[3]][[2]],col = 'green', add=TRUE)
+
+# Add a legend to differentiate between the curves
+legend("bottomright",
+       legend = c("H1n1 Vaccination", 
+                  "Seasonal Vaccination", 
+                  "Both Vaccination"),
+       col = c("red", "blue", "green"),
+       lwd = 2)
+
+
+
+```
+
+
+
+
+
+
+```{r}
+names(flu_labels)
+```
+
+
+
+
+
+# Multinomial backward stepwise selection model
+
+```{r}
+
+library(MASS)
+
+# Fit a full multinomial logistic regression model using all predictors
+full_model <- multinom(Vaccination_General ~.
+
+-behavioral_avoidance
+-behavioral_large_gatherings
+-behavioral_touch_face
+-child_under_6_months
+-health_worker
+-employment_status
+-census_msa
+-employment_occupation
+#additional from the pvalue analysis from above
+-behavioral_outside_home
+# -rent_or_own
+# -household_adults
+, data =  flu_labels.train)
+
+
+# Perform stepwise model selection based on AIC
+# direction = "both" allows both forward selection and backward elimination.
+step_model_backward <- stepAIC(full_model, direction = "backward", trace = FALSE)
+
+# Display the summary of the final model selected by stepwise regression
+summary(step_model_backward)
+
+
+```
+
+
+
+As a general rule of thumb, lower AIC is better, but there are degrees to it. 
+
+Differences in AIC Values:
+
+Difference < 2: The models are nearly indistinguishable; both could be considered good.
+
+Difference 4–7: There is moderate evidence against the model with the higher AIC.
+
+Difference > 10: There is strong evidence that the model with the lower AIC is much better.
+
+What Makes for a Good or Bad AIC?
+
+
+
+AIC from our own selection:
+
+Residual Deviance: 30317.72 
+AIC: 30845.72 
+Residual Deviance: 74895.8 
+AIC: 75423.8 
+
+
+
+AIC from our backward selection selection:
+
+Residual Deviance: 30341.98  
+AIC: 30839.98 
+
+Residual Deviance: 74895.77 
+AIC: 75411.77 
+
+
+
+# Calculate Pvalues of backward regression and remove more variables based on pvalue with threshold > .01:
+
+```{r}
+
+# Display the summary of the final model selected by stepwise regression
+# summary(step_model_backward)
+
+# Extract coefficients and standard errors from the summary
+coefficients <- summary(step_model_backward)$coefficients
+std_err <- summary(step_model_backward)$standard.errors
+
+# Compute z-statistics: coefficient / standard error
+z_values <- coefficients / std_err
+
+# Calculate the two-tailed p-values based on the normal distribution:
+p_values <- 2 * (1 - pnorm(abs(z_values)))
+# print(p_values)
+
+
+
+# Define significance threshold
+alpha <- 0.01
+
+# Exclude the intercept column(s)
+p_vals_no_int <- p_values[, !grepl("(Intercept)", colnames(p_values)), drop = FALSE]
+
+# Define the predictor names (the prefixes in your coefficient names)
+
+namesall<-names(flu_labels.train)
+
+drop_names <- c("behavioral_avoidance", "behavioral_large_gatherings", "behavioral_touch_face",
+                "child_under_6_months", "health_worker", "employment_status",
+                "census_msa", "employment_occupation", "Vaccination_General",
+                "behavioral_outside_home")
+
+
+namesall <- namesall[!namesall %in% drop_names]
+
+
+predictor_names <- c(namesall)
+
+# Initialize vector to store names of predictors considered insignificant
+insignificant_predictors <- c()
+
+
+# Loop through each predictor and check its coefficients' p-values
+for (pred in predictor_names) {
+  # Get all columns whose names begin with the predictor name.
+  pred_cols <- grep(pred, colnames(p_vals_no_int), value = TRUE)
+  # Extract the corresponding p-values (this will be a submatrix; even if it's just one column)
+  p_vals_pred <- p_vals_no_int[, pred_cols, drop = FALSE]
+
+  # Check if all p-values for this predictor across all outcomes are > alpha.
+  if (all(p_vals_pred > alpha)) {
+    insignificant_predictors <- c(insignificant_predictors, pred)
+  }
+}
+
+# Print predictors that are not significant across the outcomes
+print("Predictors deemed insignificant (all levels p > alpha):")
+print(insignificant_predictors)
+
+# No values for alpha = .05
+# If we get no insignificant predictors here, we can lower the threshold level to .01 for absolute refinement.
+
+```
+
+For the initial self selection model, 8 variables removed from group discussion
+-behavioral_avoidance
+-behavioral_large_gatherings
+-behavioral_touch_face
+-child_under_6_months
+-health_worker
+-employment_status
+-census_msa
+-employment_occupation
+
+
+After the initial self selection mode, 1 more removed through analysis of pvalues
+-behavioral_outside_home
+
+
+
+Backwards was done with updated list, removing the above 9 in total, using stricter threshold of .01, 1 more variables removed. 
+-martial_status
+
+
+
+Per Mazen's idea, combined the doc_recc variables togethers, but have a new category. replicate the same logic as vaccination general 
+did not work, skewed results too much
+
+
+
+
+
+
+
+
+# Accuracy of backward multinominal model
+
+```{r}
+
+# Predicted.test.prob is a data frame with predicted probabilities for each class,
+# with columns named "0", "1", "2", and "3".
+predicted.test.prob <- predict(step_model_backward, newdata = flu_labels.test, type = "probs")
+predicted.test.prob <- data.frame(predicted.test.prob)
+head(predicted.test.prob)
+
+# Instead of using a 0.5 cutoff on each column (which returns 4 columns),
+# we select the class with the highest probability for each observation.
+# max.col() returns the column index of the maximum probability for each row.
+predicted_class <- colnames(predicted.test.prob)[max.col(predicted.test.prob, ties.method = "first")]
+
+# Convert to the class naming convention of Vaccination_General
+predicted_class <- ifelse(predicted_class == "X0",0,
+                   ifelse(predicted_class == "X1",1,
+                   ifelse(predicted_class == "X2",2,
+                   ifelse(predicted_class == "X3",3,"NA"))))
+
+
+
+# Convert the resulting character vector into a factor with the same levels as your reference variable.
+predicted_class <- factor(predicted_class, levels = levels(flu_labels.test$Vaccination_General))
+
+# Load the caret package and create the confusion matrix.
+library(caret)
+confusionMatrix(data = predicted_class, reference = flu_labels.test$Vaccination_General)
+
+
+
+# Checking the AUC for a multinomial logistic regression
+library(pROC)
+
+# Calculate multiclass ROC.
+# The 'predicted.test.prob' should be a matrix (or data frame) of class probabilities,
+# with one column per class.
+predicted.test.prob <- predict(step_model_backward, newdata = flu_labels.test, type = "probs")
+roc_multi <- multiclass.roc(flu_labels.test$Vaccination_Genera, predicted.test.prob)
+
+# Print the overall AUC (this is an average of the pairwise AUCs)
+auc_multi <- auc(roc_multi)
+print(paste("Multiclass AUC:", auc_multi))
+
+# Plot one of the pairwise ROC curves (for example, the first one).
+# Note: Each element in 'roc_multi$rocs' corresponds to a one-vs-one ROC.
+
+table(flu_labels.test$Vaccination_General)
+
+# roc_multi$rocs[[1]][[2]]
+# roc_multi$rocs[[2]][[2]]
+# roc_multi$rocs[[3]][[2]]
+
+
+plot(roc_multi$rocs[[1]][[2]], col='red' ,main="ROC Curve (Pairwise) for Multinomial Logistic Regression")
+plot(roc_multi$rocs[[2]][[2]],col = 'blue', add=TRUE)
+plot(roc_multi$rocs[[3]][[2]],col = 'green', add=TRUE)
+
+# Add a legend to differentiate between the curves
+legend("bottomright",
+       legend = c("H1n1 Vaccination", 
+                  "Seasonal Vaccination", 
+                  "Both Vaccination"),
+       col = c("red", "blue", "green"),
+       lwd = 2)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# FINAL VARIABLE SELECTION
+
+```{r}
+
+# install.packages("nnet")
+
+library(nnet)
+
+
+
+#multinom# flu_labels.train$Vaccination_General
+
+logit.reg.mlr.ff <- multinom(Vaccination_General ~. 
+
+-doctor_recc_h1n1
+-doctor_recc_seasonal
+-health_insurance
+-opinion_h1n1_risk
+-opinion_seas_vacc_effective
+-opinion_seas_risk
+-age_group
+-employment_industry
+-h1n1_concern
+-h1n1_knowledge
+-chronic_med_condition
+-race
+-sex
+-income_poverty
+, data =  flu_labels.train)
+summary(logit.reg.mlr.ff)
+
+# Look to see if there are potential outliers
+# plot(logit.reg.ff)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+# Calculate Pvalues of FINAL VAR SELECTION
+
+```{r}
+
+
+# Display the summary of the final model selected by stepwise regression
+# summary(logit.reg.mlr.ff)
+
+# Extract coefficients and standard errors from the summary
+coefficients <- summary(logit.reg.mlr.ff)$coefficients
+std_err <- summary(logit.reg.mlr.ff)$standard.errors
+
+# Compute z-statistics: coefficient / standard error
+z_values <- coefficients / std_err
+
+# Calculate the two-tailed p-values based on the normal distribution:
+p_values <- 2 * (1 - pnorm(abs(z_values)))
+# print(p_values)
+
+
+
+# Define significance threshold
+alpha <- 0.05
+
+# Exclude the intercept column(s)
+p_vals_no_int <- p_values[, !grepl("(Intercept)", colnames(p_values)), drop = FALSE]
+
+# Define the predictor names (the prefixes in your coefficient names)
+
+namesall<-names(flu_labels.train)
+
+drop_names <- c("behavioral_avoidance", "behavioral_large_gatherings", "behavioral_touch_face",
+                "child_under_6_months", "health_worker", "employment_status",
+                "census_msa", "employment_occupation", "Vaccination_General")
+
+namesall <- namesall[!namesall %in% drop_names]
+
+
+predictor_names <- c(namesall)
+
+# Initialize vector to store names of predictors considered insignificant
+insignificant_predictors <- c()
+
+
+# Loop through each predictor and check its coefficients' p-values
+for (pred in predictor_names) {
+  # Get all columns whose names begin with the predictor name.
+  pred_cols <- grep(pred, colnames(p_vals_no_int), value = TRUE)
+  # Extract the corresponding p-values (this will be a submatrix; even if it's just one column)
+  p_vals_pred <- p_vals_no_int[, pred_cols, drop = FALSE]
+  
+  # Check if all p-values for this predictor across all outcomes are > alpha.
+  if (all(p_vals_pred > alpha)) {
+    insignificant_predictors <- c(insignificant_predictors, pred)
+  }
+}
+
+# Print predictors that are not significant across the outcomes
+print("Predictors deemed insignificant (all levels p > alpha):")
+print(insignificant_predictors)
+
+
+
+```
+
+
+
+
+
+
+# Accuracy with FINAL VAR SELECTION MODEL
+
+```{r}
+
+# Predicted.test.prob is a data frame with predicted probabilities for each class,
+# with columns named "0", "1", "2", and "3".
+predicted.test.prob <- predict(logit.reg.mlr.ff, newdata = flu_labels.test, type = "probs")
+predicted.test.prob <- data.frame(predicted.test.prob)
+head(predicted.test.prob)
+
+# Instead of using a 0.5 cutoff on each column (which returns 4 columns), 
+# we select the class with the highest probability for each observation.
+# max.col() returns the column index of the maximum probability for each row.
+predicted_class <- colnames(predicted.test.prob)[max.col(predicted.test.prob, ties.method = "first")]
+
+# Convert to the class naming convention of Vaccination_General
+predicted_class <- ifelse(predicted_class == "X0",0, 
+                   ifelse(predicted_class == "X1",1,
+                   ifelse(predicted_class == "X2",2,
+                   ifelse(predicted_class == "X3",3,"NA"))))
+
+
+
+# Convert the resulting character vector into a factor with the same levels as your reference variable.
+predicted_class <- factor(predicted_class, levels = levels(flu_labels.test$Vaccination_General))
+
+# Load the caret package and create the confusion matrix.
+library(caret)
+confusionMatrix(data = predicted_class, reference = flu_labels.test$Vaccination_General)
+
+
+
+# Checking the AUC for a multinomial logistic regression
+library(pROC)
+
+# Calculate multiclass ROC.
+# The 'predicted.test.prob' should be a matrix (or data frame) of class probabilities,
+# with one column per class.
+predicted.test.prob <- predict(logit.reg.mlr.ff, newdata = flu_labels.test, type = "probs")
+roc_multi <- multiclass.roc(flu_labels.test$Vaccination_Genera, predicted.test.prob)
+
+# Print the overall AUC (this is an average of the pairwise AUCs)
+auc_multi <- auc(roc_multi)
+print(paste("Multiclass AUC:", auc_multi))
+
+
+# table(flu_labels.test$Vaccination_General)
+
+#Each element in 'roc_multi$rocs' corresponds to a one-vs-one ROC.
+# roc_multi$rocs[[1]][[2]]
+# roc_multi$rocs[[2]][[2]]
+# roc_multi$rocs[[3]][[2]]
+
+
+plot(roc_multi$rocs[[1]][[2]], col='grey' ,main="ROC Curve (Pairwise) for Multinomial Logistic Regression")
+plot(roc_multi$rocs[[2]][[2]],col = 'orange', add=TRUE)
+plot(roc_multi$rocs[[3]][[2]],col = '#0073e6', add=TRUE)
+
+# Add a legend to differentiate between the curves
+legend("bottomright", 
+       legend = c("H1n1 Vaccination", 
+                  "Seasonal Vaccination", 
+                  "Both Vaccination"), 
+       col = c("grey", "orange", "#0073e6"), 
+       lwd = 2)
+
+
+
+```
+
+
+
+
+
+# Code to export final probabilities from multiclass logistic regression
+
+```{r}
+
+#install.packages("writexl")
+# library(writexl)
+# 
+# 
+# flu_labels.test2 <- flu_labels.test
+# 
+# 
+# flu_labels.test2$prediction01 <- predicted.test.prob$X0
+# flu_labels.test2$prediction02 <- predicted.test.prob$X1
+# flu_labels.test2$prediction03 <- predicted.test.prob$X2
+# flu_labels.test2$prediction04 <- predicted.test.prob$X3
+# 
+# 
+# 
+# write.csv(x = flu_labels.test2, file = 'Final Logistic Predictions.csv')
+# 
+
+
+```
+
+
+
+
+
+
+```{r}
+
+flu_labels
+
+library(ggplot2)
+
+ggplot(flu_labels, aes(y=flu_labels$opinion_seas_vacc_effective, x=age_group)) +
+  geom_boxplot()
+
+table(flu_labels$opinion_seas_vacc_effective)
+
+```
+
+
+
+
+
+
+

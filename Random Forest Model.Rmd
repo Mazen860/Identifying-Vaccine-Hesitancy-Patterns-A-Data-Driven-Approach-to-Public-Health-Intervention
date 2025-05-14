@@ -1,0 +1,891 @@
+---
+title: "Untitled"
+author: "Mazen Alhaffar"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+set.seed(123)
+```
+
+# First Run with H1n1 vaccination
+```{r}
+data <- read.csv('/Users/mazenalhaffar/Documents/Business Analytics/Capstone/h1n1_train_CLEANED_Targetvar.csv')
+
+# Remove ID
+data <- data[, -c(1)]
+
+data[] <- lapply(data, function(x) {
+  if (is.integer(x) || is.character(x)) {
+    as.factor(x)
+  } else {
+    x
+  }
+})
+
+str(data)
+```
+
+```{r}
+# Partition data into training (70%) and testing (30%) data sets
+
+# create a sample of indexes
+data.rows <- nrow(data)
+data.index <- sample(data.rows, .7*data.rows)
+
+# create datasets using above randomly chosen indexes
+data.train <- data[data.index,]
+data.test  <- data[-data.index,]
+
+# confirm the total number of rows matches the above
+nrow(data.test) + nrow(data.train)
+```
+
+```{r}
+#First Run with all variables
+library(randomForest)
+
+# Model for h1n1_vaccine
+rf_h1n1 <- randomForest(h1n1_vaccine ~ . - vaccine_rate - seasonal_vaccine, data = data.train, importance = TRUE, na.action = na.omit)
+varImpPlot(rf_h1n1, main = "Feature Importance for H1N1 Vaccine")
+```
+
+```{r}
+# Load necessary libraries
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+
+# Extract importance and add variable names
+importance_df <- as.data.frame(importance(rf_h1n1))
+importance_df$Variable <- rownames(importance_df)
+
+# Sort by MeanDecreaseAccuracy
+importance_df <- importance_df %>%
+  arrange(desc(MeanDecreaseAccuracy))
+
+# Add a color column manually: top 10 = darkblue, rest = lightgray
+importance_df$Color <- c(rep("darkblue", 10), rep("lightgray", nrow(importance_df) - 10))
+
+# Plot using ggplot2
+ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                          y = MeanDecreaseAccuracy, fill = Color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +  # Use manual fill values from Color column
+  coord_flip() +
+  labs(title = "First Run Feature Importance with H1N1 vaccine as Target Variable",
+       x = "Variable",
+       y = "Importance Score") +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 1),
+    axis.title.x = element_text(face = "bold", size = 12),
+    axis.title.y = element_text(face = "bold", size = 12)
+  )
+```
+
+```{r}
+# Load necessary libraries
+library(randomForest)
+library(caret)
+library(pROC)
+
+predict_class.rf.h1n1 = predict(rf_h1n1, newdata = data.test)
+cm <- confusionMatrix(data = predict_class.rf.h1n1, reference = data.test$h1n1_vaccine)
+
+roc = roc(data.test$h1n1_vaccine, as.numeric(predict_class.rf.h1n1))
+auc(roc)
+
+# Extract metrics
+acc <- round(cm$overall["Accuracy"], 2)
+sens <- round(cm$byClass["Sensitivity"], 2)
+spec <- round(cm$byClass["Specificity"], 2)
+
+# AUC calculation using predicted probabilities
+roc <- roc(data.test$h1n1_vaccine, as.numeric(predict_class.rf.h1n1))
+auc_val <- round(auc(roc), 2)
+
+# Set up clean plotting area
+par(bg = "white", mar = c(5, 5, 4, 6))  # More space on right side
+
+# Plot ROC curve with visual enhancements
+plot(roc,
+     col = "blue", lwd = 3,
+     main = "ROC Curve - H1N1 Vaccine",
+     legacy.axes = FALSE,
+     xlab = "False Positive Rate (1 - Specificity)",
+     ylab = "True Positive Rate (Sensitivity)",
+     cex.lab = 1.3, cex.axis = 1.1, font.lab = 2)
+
+# Optional: add grid
+grid(col = "gray90", lty = "dotted")
+
+# Add model metrics to the plot
+text(-0.2, 0.4, labels = paste0("AUC: ", auc_val), col = "darkred", font = 2, cex = 1.4)
+text(-0.2, 0.3, labels = paste0("Accuracy: ", acc), font = 2, cex = 1.2)
+text(-0.2, 0.2, labels = paste0("Sensitivity: ", sens), font = 2, cex = 1.2)
+text(-0.2, 0.1, labels = paste0("Specificity: ", spec), font = 2, cex = 1.2)
+```
+
+# Second Run with Seasonal Vaccination
+```{r}
+# Model for seasonal_vaccine
+rf_seasonal <- randomForest(seasonal_vaccine ~ . - vaccine_rate - h1n1_vaccine, data = data.train, importance = TRUE, na.action = na.omit)
+varImpPlot(rf_seasonal, main = "Feature Importance for Seasonal Vaccine")
+```
+
+```{r}
+# Load necessary libraries
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+
+# Extract importance and add variable names
+importance_df <- as.data.frame(importance(rf_seasonal))
+importance_df$Variable <- rownames(importance_df)
+
+# Sort by MeanDecreaseAccuracy
+importance_df <- importance_df %>%
+  arrange(desc(MeanDecreaseAccuracy))
+
+# Add a color column manually: top 10 = darkblue, rest = lightgray
+importance_df$Color <- c(rep("darkblue", 10), rep("lightgray", nrow(importance_df) - 10))
+
+# Plot using ggplot2
+ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                          y = MeanDecreaseAccuracy, fill = Color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +  # Use manual fill values from Color column
+  coord_flip() +
+  labs(title = "Second Run Feature Importance with Seasonal as Target Variable",
+       x = "Variable",
+       y = "Importance Score") +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 1),
+    axis.title.x = element_text(face = "bold", size = 12),
+    axis.title.y = element_text(face = "bold", size = 12)
+  )
+```
+
+
+```{r}
+#seasonal as target variable
+predict_class.rf.seasonal = predict(rf_seasonal, newdata = data.test)
+cm <- confusionMatrix(data = predict_class.rf.seasonal, reference = data.test$seasonal_vaccine)
+
+roc = roc(data.test$seasonal_vaccine, as.numeric(predict_class.rf.seasonal))
+auc(roc)
+
+# Extract metrics
+acc <- round(cm$overall["Accuracy"], 2)
+sens <- round(cm$byClass["Sensitivity"], 2)
+spec <- round(cm$byClass["Specificity"], 2)
+
+# AUC calculation using predicted probabilities
+roc <- roc(data.test$seasonal_vaccine, as.numeric(predict_class.rf.seasonal))
+auc_val <- round(auc(roc), 2)
+
+# Set up clean plotting area
+par(bg = "white", mar = c(5, 5, 4, 6))  # More space on right side
+
+# Plot ROC curve with visual enhancements
+plot(roc,
+     col = "blue", lwd = 3,
+     main = "ROC Curve - Seasonal Vaccine",
+     legacy.axes = FALSE,
+     xlab = "False Positive Rate (1 - Specificity)",
+     ylab = "True Positive Rate (Sensitivity)",
+     cex.lab = 1.3, cex.axis = 1.1, font.lab = 2)
+
+# Optional: add grid
+grid(col = "gray90", lty = "dotted")
+
+# Add model metrics to the plot
+text(-0.2, 0.4, labels = paste0("AUC: ", auc_val), col = "darkred", font = 2, cex = 1.4)
+text(-0.2, 0.3, labels = paste0("Accuracy: ", acc), font = 2, cex = 1.2)
+text(-0.2, 0.2, labels = paste0("Sensitivity: ", sens), font = 2, cex = 1.2)
+text(-0.2, 0.1, labels = paste0("Specificity: ", spec), font = 2, cex = 1.2)
+```
+
+# Third Run with Vaccination General After first round of manual variables removal
+```{r}
+data2 <- read.csv('/Users/mazenalhaffar/Documents/Business Analytics/Capstone/Final_h1n1_fulldataset_CLEANED_Labels.csv')
+
+library(dplyr)
+
+which(names(data2) %in% c("employment_occupation", "behavioral_avoidance", "behavioral_large_gatherings", "behavioral_touch_face", "child_under_6_months", "health_worker", "employment_status", "census_msa", "employment_occupation"))
+
+# Remove ID
+data2 <- data2[, -c(1, 5, 8, 10, 14, 15, 30, 32, 36)]
+
+data2[] <- lapply(data2, function(x) {
+  if (is.integer(x) || is.character(x)) {
+    as.factor(x)
+  } else {
+    x
+  }
+})
+
+str(data2)
+```
+
+```{r}
+# Partition data into training (70%) and testing (30%) data sets
+
+# create a sample of indexes
+data.rows2 <- nrow(data2)
+data.index2 <- sample(data.rows2, .7*data.rows2)
+
+# create datasets using above randomly chosen indexes
+data.train2 <- data2[data.index2,]
+data.test2  <- data2[-data.index2,]
+
+# confirm the total number of rows matches the above
+nrow(data.test2) + nrow(data.train2)
+```
+
+```{r}
+# Model for h1n1_vaccine
+rf_vacc <- randomForest(Vaccination_General ~ . - seasonal_vaccine - h1n1_vaccine, data = data.train2, importance = TRUE, na.action = na.omit)
+varImpPlot(rf_vacc, main = "Feature Importance for Vaccination General")
+```
+
+```{r}
+# Load necessary libraries
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+
+# Extract importance and add variable names
+importance_df <- as.data.frame(importance(rf_seasonal))
+importance_df$Variable <- rownames(importance_df)
+
+# Sort by MeanDecreaseAccuracy
+importance_df <- importance_df %>%
+  arrange(desc(MeanDecreaseAccuracy))
+
+# Add a color column manually: top 10 = darkblue, rest = lightgray
+importance_df$Color <- c(rep("darkblue", 10), rep("lightgray", nrow(importance_df) - 10))
+
+# Plot using ggplot2
+ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                          y = MeanDecreaseAccuracy, fill = Color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +  # Use manual fill values from Color column
+  coord_flip() +
+  labs(title = "Third Run Feature Importance with Vaccination General as Target Variable",
+       x = "Variable",
+       y = "Importance Score") +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 1),
+    axis.title.x = element_text(face = "bold", size = 12),
+    axis.title.y = element_text(face = "bold", size = 12)
+  )
+```
+
+```{r}
+# Prediction
+predict_class.rf.general <- predict(rf_vacc, newdata = data.test2)
+
+# Confusion Matrix
+cm <- confusionMatrix(data = predict_class.rf.general, reference = data.test2$Vaccination_General)
+
+# Multiclass AUC
+library(pROC)
+roc <- multiclass.roc(data.test2$Vaccination_General, as.numeric(predict_class.rf.general))
+auc_val <- round(auc(roc), 2)
+
+# Extract metrics
+acc <- round(cm$overall["Accuracy"], 2)
+bal_acc <- round(cm$byClass[, "Balanced Accuracy"], 2)  # Balanced Acc per class
+# You can choose which class to show or average:
+bal_acc_avg <- round(mean(bal_acc, na.rm=TRUE), 2)
+
+# Extract Sensitivity & Specificity per class
+sens_class <- cm$byClass[, "Sensitivity"]
+spec_class <- cm$byClass[, "Specificity"]
+
+# Extract Prevalence per class
+prevalence <- cm$byClass[, "Prevalence"]
+
+# Calculate Weighted Sensitivity & Specificity
+weighted_sens <- round(sum(sens_class * prevalence, na.rm = TRUE), 2)
+weighted_spec <- round(sum(spec_class * prevalence, na.rm = TRUE), 2)
+
+par(bg = "white", mar = c(5, 5, 4, 6))
+
+plot(roc$rocs[[1]], 
+     col = "blue", lwd = 3,
+     main = "ROC Curve - General Vaccination",
+     legacy.axes = FALSE,
+     xlab = "False Positive Rate (1 - Specificity)",
+     ylab = "True Positive Rate (Sensitivity)",
+     cex.lab = 1.3, cex.axis = 1.1, font.lab = 2)
+
+grid(col = "gray90", lty = "dotted")
+
+# Add metrics to plot
+text(-0.2, 0.4, paste0("AUC: ", auc_val), col = "darkred", font = 2, cex = 1.4)
+text(-0.2, 0.32, paste0("Accuracy: ", acc), font = 2, cex = 1.2)
+text(-0.05, 0.24, paste0("Weighted Sensitivity: ", weighted_sens), font = 2, cex = 1.2)
+text(-0.05, 0.16, paste0("Weighted Specificity: ", weighted_spec), font = 2, cex = 1.2)
+```
+
+
+```{r}
+## define categorical variables
+data2 <- data2 %>% mutate(across(where(is.integer), as.factor))
+data2 <- data2 %>% mutate(across(where(is.character), as.factor))
+
+# Subset the numerical and categorical variables for Flu
+numeric_var <- data2 %>% dplyr::select(where(is.numeric))
+num_names   <- names(numeric_var)
+cat_var     <- data2 %>% dplyr::select(-num_names)
+
+
+
+## Subset the numerical and categorical variables for flu_labels
+numeric_var2 <- data2 %>% dplyr::select(where(is.numeric))
+num_names2   <- names(numeric_var)
+cat_var2     <- data2 %>% dplyr::select(-num_names)
+
+# install.packages('DescTools')
+
+# Load necessary libraries
+library(dplyr)
+library(DescTools)
+
+# Get the names of the categorical variables
+var_names <- names(cat_var2)
+n <- length(var_names)
+
+# Initialize an empty matrix to store corrected Cramer's V values
+cramer_matrix <- matrix(NA, nrow = n, ncol = n)
+rownames(cramer_matrix) <- var_names
+colnames(cramer_matrix) <- var_names
+
+# Loop through each pair of categorical variables to compute corrected Cramer's V
+for (i in 1:n) {
+  for (j in i:n) {
+    if (i == j) {
+      cramer_matrix[i, j] <- 1  # A variable is perfectly associated with itself
+    } else {
+      # Create a contingency table between variable i and variable j
+      tbl <- table(cat_var2[[i]], cat_var2[[j]])
+      # Compute corrected Cramer's V (with bias correction)
+      cv <- CramerV(tbl, bias.correct = TRUE)
+      cramer_matrix[i, j] <- cv
+      cramer_matrix[j, i] <- cv  # Fill in the symmetric element
+    }
+  }
+}
+
+# Print the corrected Cramer's V matrix
+print(cramer_matrix)
+
+
+
+library(ggplot2)
+library(reshape2)
+
+
+# Convert the matrix into long format data frame using melt()
+heatmap_df <- melt(cramer_matrix)
+
+# Create the heat map with ggplot2
+ggplot(heatmap_df, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Heatmap of Corrected Cramer's V", 
+       x = "Variable", 
+       y = "Variable", 
+       fill = "Cramer's V") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), text = element_text(size=9))
+```
+
+# Fourth Run with Vaccination General after final manual variables selection
+```{r}
+#second run with Vaccination General as target variable and peers discussion about variables removal
+data3 <- read.csv('/Users/mazenalhaffar/Documents/Business Analytics/3rd Semester/Capstone/Final_h1n1_fulldataset_CLEANED_Labels.csv')
+
+# Keep only selected variables
+selected_vars <- c("Vaccination_General", "doctor_recc_h1n1", "doctor_recc_seasonal", "health_insurance", 
+                   "opinion_h1n1_risk", "opinion_seas_vacc_effective", "opinion_seas_risk", 
+                   "age_group", "employment_industry", "h1n1_concern", "h1n1_knowledge", 
+                   "chronic_med_condition", "race", "sex", "income_poverty")
+
+data3 <- data3[, selected_vars]
+
+data3[] <- lapply(data3, function(x) {
+  if (is.integer(x) || is.character(x)) {
+    as.factor(x)
+  } else {
+    x
+  }
+})
+
+str(data3)
+```
+
+```{r}
+# Partition data into training (70%) and testing (30%) data sets
+
+# create a sample of indexes
+data.rows3 <- nrow(data3)
+data.index3 <- sample(data.rows3, .7*data.rows3)
+
+# create datasets using above randomly chosen indexes
+data.train3 <- data3[data.index3,]
+data.test3  <- data3[-data.index3,]
+
+# confirm the total number of rows matches the above
+nrow(data.test3) + nrow(data.train3)
+```
+
+```{r}
+library(randomForest)
+# Model for h1n1_vaccine
+rf_final <- randomForest(Vaccination_General ~ ., data = data.train3, importance = TRUE, na.action = na.omit)
+varImpPlot(rf_final, main = "Feature Importance for Vaccination General")
+```
+
+```{r}
+# Load necessary libraries
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+
+# Extract importance and add variable names
+importance_df <- as.data.frame(importance(rf_final))
+importance_df$Variable <- rownames(importance_df)
+
+# Sort by MeanDecreaseAccuracy
+importance_df <- importance_df %>%
+  arrange(desc(MeanDecreaseAccuracy))
+
+# Add a color column manually: top 10 = darkblue, rest = lightgray
+importance_df$Color <- c(rep("darkblue", 10), rep("lightgray", nrow(importance_df) - 10))
+
+# Plot using ggplot2
+ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                          y = MeanDecreaseAccuracy, fill = Color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +  # Use manual fill values from Color column
+  coord_flip() +
+  labs(title = "Fourth Run Feature Importance with Vaccination General as Target Variable",
+       x = "Variable",
+       y = "Importance Score") +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 1),
+    axis.title.x = element_text(face = "bold", size = 12),
+    axis.title.y = element_text(face = "bold", size = 12)
+  )
+
+```
+
+
+```{r}
+# Prediction
+predict_class.rf.final <- predict(rf_final, newdata = data.test3)
+
+# Confusion Matrix
+cm <- confusionMatrix(data = predict_class.rf.final, reference = data.test3$Vaccination_General)
+
+# Multiclass AUC
+library(pROC)
+roc <- multiclass.roc(data.test3$Vaccination_General, as.numeric(predict_class.rf.final))
+auc_val <- round(auc(roc), 2)
+
+# Extract metrics
+acc <- round(cm$overall["Accuracy"], 2)
+bal_acc <- round(cm$byClass[, "Balanced Accuracy"], 2)  # Balanced Acc per class
+# You can choose which class to show or average:
+bal_acc_avg <- round(mean(bal_acc, na.rm=TRUE), 2)
+
+# Extract Sensitivity & Specificity per class
+sens_class <- cm$byClass[, "Sensitivity"]
+spec_class <- cm$byClass[, "Specificity"]
+
+# Extract Prevalence per class
+prevalence <- cm$byClass[, "Prevalence"]
+
+# Calculate Weighted Sensitivity & Specificity
+weighted_sens <- round(sum(sens_class * prevalence, na.rm = TRUE), 2)
+weighted_spec <- round(sum(spec_class * prevalence, na.rm = TRUE), 2)
+
+par(bg = "white", mar = c(5, 5, 4, 6))
+
+plot(roc$rocs[[1]], 
+     col = "blue", lwd = 3,
+     main = "4th Run ROC Curve - General Vaccination",
+     legacy.axes = FALSE,
+     xlab = "False Positive Rate (1 - Specificity)",
+     ylab = "True Positive Rate (Sensitivity)",
+     cex.lab = 1.3, cex.axis = 1.1, font.lab = 2)
+
+grid(col = "gray90", lty = "dotted")
+
+# Add metrics to plot
+text(-0.2, 0.4, paste0("AUC: ", auc_val), col = "darkred", font = 2, cex = 1.4)
+text(-0.2, 0.32, paste0("Accuracy: ", acc), font = 2, cex = 1.2)
+text(-0.05, 0.24, paste0("Weighted Sensitivity: ", weighted_sens), font = 2, cex = 1.2)
+text(-0.05, 0.16, paste0("Weighted Specificity: ", weighted_spec), font = 2, cex = 1.2)
+
+
+```
+
+# 5th Run with Balanced (Oversampled) Dataset with General Vaccination
+```{r}
+data4 <- read.csv('/Users/mazenalhaffar/Documents/Business Analytics/3rd Semester/Capstone/balanced flu_labels.train.csv')
+
+# Keep only selected variables
+selected_vars <- c("Vaccination_General", "doctor_recc_h1n1", "doctor_recc_seasonal", "health_insurance", 
+                   "opinion_h1n1_risk", "opinion_seas_vacc_effective", "opinion_seas_risk", 
+                   "age_group", "employment_industry", "h1n1_concern", "h1n1_knowledge", 
+                   "chronic_med_condition", "race", "sex", "income_poverty")
+
+data4 <- data4[, selected_vars]
+
+data4[] <- lapply(data4, function(x) {
+  if (is.integer(x) || is.character(x)) {
+    as.factor(x)
+  } else {
+    x
+  }
+})
+
+str(data4)
+```
+
+```{r}
+# Partition data into training (70%) and testing (30%) data sets
+
+# create a sample of indexes
+data.rows4 <- nrow(data4)
+data.index4 <- sample(data.rows4, .7*data.rows4)
+
+# create datasets using above randomly chosen indexes
+data.train4 <- data4[data.index4,]
+data.test4  <- data4[-data.index4,]
+
+# confirm the total number of rows matches the above
+nrow(data.test4) + nrow(data.train4)
+```
+
+```{r}
+# Model for h1n1_vaccine
+rf_final2 <- randomForest(Vaccination_General ~ ., data = data.train4, importance = TRUE, na.action = na.omit)
+varImpPlot(rf_final2, main = "Feature Importance for Vaccination General")
+```
+
+```{r}
+# Load necessary libraries
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+
+# Extract importance and add variable names
+importance_df <- as.data.frame(importance(rf_final2))
+importance_df$Variable <- rownames(importance_df)
+
+# Sort by MeanDecreaseAccuracy
+importance_df <- importance_df %>%
+  arrange(desc(MeanDecreaseAccuracy))
+
+# Add a color column manually: top 10 = darkblue, rest = lightgray
+importance_df$Color <- c(rep("darkblue", 10), rep("lightgray", nrow(importance_df) - 10))
+
+# Plot using ggplot2
+ggplot(importance_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                          y = MeanDecreaseAccuracy, fill = Color)) +
+  geom_bar(stat = "identity") +
+  scale_fill_identity() +  # Use manual fill values from Color column
+  coord_flip() +
+  labs(title = "Fifth Run Feature Importance with Vaccination General as Target Variable",
+       x = "Variable",
+       y = "Importance Score") +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 1),
+    axis.title.x = element_text(face = "bold", size = 12),
+    axis.title.y = element_text(face = "bold", size = 12)
+  )
+
+```
+
+```{r}
+# Prediction
+predict_class.rf.final2 <- predict(rf_final2, newdata = data.test4)
+
+# Confusion Matrix
+cm2 <- confusionMatrix(data = predict_class.rf.final2, reference = data.test4$Vaccination_General)
+
+# Multiclass AUC
+library(pROC)
+roc <- multiclass.roc(data.test4$Vaccination_General, as.numeric(predict_class.rf.final2))
+auc_val <- round(auc(roc), 2)
+
+# Extract metrics
+acc <- round(cm2$overall["Accuracy"], 2)
+bal_acc <- round(cm2$byClass[, "Balanced Accuracy"], 2)  # Balanced Acc per class
+# You can choose which class to show or average:
+bal_acc_avg <- round(mean(bal_acc, na.rm=TRUE), 2)
+
+# Extract Sensitivity & Specificity per class
+sens_class <- cm2$byClass[, "Sensitivity"]
+spec_class <- cm2$byClass[, "Specificity"]
+
+# Extract Prevalence per class
+prevalence <- cm2$byClass[, "Prevalence"]
+
+# Calculate Weighted Sensitivity & Specificity
+weighted_sens <- round(sum(sens_class * prevalence, na.rm = TRUE), 2)
+weighted_spec <- round(sum(spec_class * prevalence, na.rm = TRUE), 2)
+
+par(bg = "white", mar = c(5, 5, 4, 6))
+
+plot(roc$rocs[[1]], 
+     col = "blue", lwd = 3,
+     main = "Random Forest Final Run ROC Curve",
+     legacy.axes = FALSE,
+     xlab = "False Positive Rate (1 - Specificity)",
+     ylab = "True Positive Rate (Sensitivity)",
+     cex.lab = 1, cex.axis = 1.1, font.lab = 2)
+
+grid(col = "gray90", lty = "dotted")
+
+# Add metrics to plot
+text(-0.2, 0.4, paste0("AUC: ", auc_val), col = "darkred", font = 2, cex = 1.4)
+text(-0.2, 0.32, paste0("Accuracy: ", acc), font = 2, cex = 1.2)
+text(-0.05, 0.24, paste0("Weighted Sensitivity: ", weighted_sens), font = 2, cex = 1.2)
+text(-0.05, 0.16, paste0("Weighted Specificity: ", weighted_spec), font = 2, cex = 1.2)
+
+```
+
+```{r}
+cm2
+```
+
+```{r}
+rf_final2$mtry
+```
+
+```{r}
+rf_final2$ntree
+```
+
+#Multiclass ROC Curve
+```{r}
+# # Prediction
+# predict_class.rf.final2 <- predict(rf_final2, newdata = data.test4)
+# 
+# # Confusion Matrix
+# cm2 <- confusionMatrix(data = predict_class.rf.final2, reference = data.test4$Vaccination_General)
+# 
+# # Multiclass AUC
+# library(pROC)
+# roc <- multiclass.roc(data.test4$Vaccination_General, as.numeric(predict_class.rf.final2))
+# 
+# # Extract metrics
+# auc_val <- round(auc(roc), 2)
+# acc <- round(cm2$overall["Accuracy"], 2)
+# bal_acc <- round(cm2$byClass[, "Balanced Accuracy"], 2)
+# bal_acc_avg <- round(mean(bal_acc, na.rm = TRUE), 2)
+# 
+# sens_class <- cm2$byClass[, "Sensitivity"]
+# spec_class <- cm2$byClass[, "Specificity"]
+# prevalence <- cm2$byClass[, "Prevalence"]
+# 
+# weighted_sens <- round(sum(sens_class * prevalence, na.rm = TRUE), 2)
+# weighted_spec <- round(sum(spec_class * prevalence, na.rm = TRUE), 2)
+# 
+# # Plot all ROC curves
+# roc_list <- roc$rocs
+# colors <- c("red", "blue", "darkgreen", "purple")  # One per class
+# class_labels <- c("Class 0", "Class 1", "Class 2", "Class 3")
+# 
+# # Start plot
+# par(bg = "white", mar = c(5, 5, 4, 6))
+# plot(roc_list[[1]], col = colors[1], lwd = 3,
+#      main = "Random Forest ROC Curve - Multiclass",
+#      legacy.axes = FALSE,
+#      xlab = "False Positive Rate (1 - Specificity)",
+#      ylab = "True Positive Rate (Sensitivity)",
+#      cex.lab = 1.2, cex.axis = 1.1, font.lab = 2)
+# 
+# # Add the remaining ROC curves
+# for (i in 2:length(roc_list)) {
+#   lines(roc_list[[i]], col = colors[i], lwd = 3)
+# }
+# 
+# # AUC per class (deduplicated)
+# auc_values <- sapply(roc_list[1:4], function(x) round(auc(x), 2))
+# 
+# # Define unique class labels
+# class_labels <- c("Class 0", "Class 1", "Class 2", "Class 3")
+# 
+# # Add legend once
+# legend("bottomright", legend = paste(class_labels, "- AUC:", auc_values),
+#        col = colors[1:4], lwd = 2, cex = 0.95, title = "Class-wise ROC")
+
+
+```
+
+```{r}
+# # Function to calculate concordance for binary classification
+# concordance_binary <- function(actual, predicted_prob) {
+#   pos <- which(actual == 1)
+#   neg <- which(actual == 0)
+# 
+#   total_pairs <- length(pos) * length(neg)
+#   concordant <- 0
+#   discordant <- 0
+#   tied <- 0
+# 
+#   for (i in pos) {
+#     for (j in neg) {
+#       if (predicted_prob[i] > predicted_prob[j]) {
+#         concordant <- concordant + 1
+#       } else if (predicted_prob[i] < predicted_prob[j]) {
+#         discordant <- discordant + 1
+#       } else {
+#         tied <- tied + 1
+#       }
+#     }
+#   }
+# 
+#   rate <- ifelse(total_pairs == 0, NA, concordant / total_pairs)
+#   return(list(
+#     Concordant = concordant,
+#     Discordant = discordant,
+#     Tied = tied,
+#     TotalPairs = total_pairs,
+#     ConcordanceRate = round(rate, 6)
+#   ))
+# }
+# 
+# # Multiclass version
+# multiclass_concordance <- function(actual, prob_matrix) {
+#   results <- list()
+#   class_labels <- sort(unique(actual))
+# 
+#   for (label in class_labels) {
+#     actual_binary <- ifelse(actual == label, 1, 0)
+#     pred_probs <- prob_matrix[, as.character(label)]
+#     results[[paste0("Class_", label)]] <- concordance_binary(actual_binary, pred_probs)
+#   }
+# 
+#   return(results)
+# }
+# 
+# #code change
+# actual <- data.test4$Vaccination_General
+# prob_matrix <- predict(rf_final2, newdata = data.test4, type = "prob")
+# 
+# results <- multiclass_concordance(actual, prob_matrix)
+# print(results)
+
+```
+
+#Probabilities
+```{r}
+# library(randomForest)
+# probs <- predict(rf_final2, newdata = data.test4, type = "prob")
+# nrow(probs)
+# head(probs)
+```
+
+```{r}
+# library(writexl)
+# write.csv(x = probs2, file = 'Final Random Forest Predictions.csv')
+```
+
+```{r}
+# library(randomForest)
+# probs2 <- predict(rf_final2, newdata = data.test4)
+# head(probs2)
+```
+
+```{r}
+# data.test4$prediction <- probs2
+```
+
+```{r}
+# library(writexl)
+# write.csv(x = data.test4, file = 'Final Random Forest Predictions.csv')
+```
+
+```{r}
+# data.test4$prediction <- NULL
+# 
+# # random forest with cross-validation
+# numFolds = trainControl(method = "cv", number = 5)
+# search_grid = expand.grid(.mtry = c(1:15))
+# train(Vaccination_General ~ ., data = data.train4, method = "rf", trControl = numFolds, tuneGrid = search_grid, ntree=100, nodesize=25 )
+# # mtry is us trying figure out which number of our variables chosen would results in the optimal value to look for when making a CART. We have 16 variables in total.
+# 
+# # Create a new CART model with optimal value of mtry from above
+# library(randomForest)
+# 
+# # Initial run
+# model.rf = randomForest(Vaccination_General ~ ., data = data.train4, ntree=100, nodesize=25, mtry= 4, importance = TRUE)
+# # nodesize is short of like minisplit, the number of observations in each bucket
+# # feature importance will show us the importance of each predictor variable in the final model
+# # typically we start with square of the total number of variables for mtry
+# 
+# # Make predictions
+# 
+# library(caret)
+# 
+# predict_class.rf = predict(model.rf, newdata = data.test4)
+# confusionMatrix(data = predict_class.rf, reference = data.test4$Vaccination_General)
+# 
+# varImpPlot(model.rf, type=1)
+# 
+# # Checking the AUC
+# library(pROC)
+# roc = roc(data.test4$Vaccination_General, as.numeric(predict_class.rf))
+# auc(roc)
+# plot(roc)
+```
+
+```{r}
+# # Initial run
+# model.rf2 = randomForest(Vaccination_General ~ ., data = data.train4, ntree=100, nodesize=25, mtry= 15, importance = TRUE)
+# # nodesize is short of like minisplit, the number of observations in each bucket
+# # feature importance will show us the importance of each predictor variable in the final model
+# # typically we start with square of the total number of variables for mtry
+# 
+# # Make predictions
+# 
+# library(caret)
+# 
+# predict_class.rf2 = predict(model.rf2, newdata = data.test4)
+# confusionMatrix(data = predict_class.rf2, reference = data.test4$Vaccination_General)
+# 
+# varImpPlot(model.rf2, type=1)
+# 
+# # Checking the AUC
+# library(pROC)
+# roc2 = roc(data.test4$Vaccination_General, as.numeric(predict_class.rf2))
+# auc(roc2)
+# plot(roc2)
+```
+
+```{r}
+# library(randomForest)
+# probs3 <- predict(model.rf2, newdata = data.test4)
+# head(probs3)
+```
+
+```{r}
+# data.test4$prediction <- probs3
+# library(writexl)
+# write.csv(x = data.test4, file = 'Final Random Forest Predictions2.csv')
+```
+

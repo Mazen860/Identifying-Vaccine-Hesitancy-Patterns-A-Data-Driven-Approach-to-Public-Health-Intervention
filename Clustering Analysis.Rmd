@@ -1,0 +1,272 @@
+---
+title: "Clustering"
+author: "Mazen Alhaffar"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+set.seed(123)
+```
+
+# Clustering - K-Modes Clustering Run
+```{r}
+library(cluster)
+library(factoextra)
+library(ggplot2)
+
+# Load data
+data <- read.csv("/Users/mazenalhaffar/Documents/Business Analytics/Capstone/Final_h1n1_fulldataset_CLEANED_Labels.csv")
+
+# Choose the variables I want
+data <- subset(data, select = c(doctor_recc_h1n1,
+doctor_recc_seasonal,
+health_insurance,
+opinion_h1n1_risk,
+opinion_seas_vacc_effective,
+opinion_seas_risk,
+age_group,
+employment_industry,
+h1n1_concern,
+h1n1_knowledge,
+Vaccination_General))
+
+levels(data$employment_industry)
+levels(data$age_group)
+
+data$employment_industry <- dplyr::recode(data$employment_industry,
+  "arjwrbjb" = 0,
+  "atmlpfrs" = 1,
+  "cfqqtusy" = 2,
+  "dotnnunm" = 3,
+  "fcxhlnwr" = 4,
+  "haxffmxo" = 5,
+  "ldnlellj" = 6,
+  "mcubkhph" = 7,
+  "mfikgejo" = 8,
+  "msuufmds" = 9,
+  "nduyfdeo" = 10,
+  "phxvnwax" = 11,
+  "pxcmvdjn" = 12,
+  "qnlwzans" = 13,
+  "rucpziij" = 14,
+  "saaquncn" = 15,
+  "vjjrobsf" = 16,
+  "wlfvacwt" = 17,
+  "wxleyezf" = 18,
+  "xicduogh" = 19,
+  "xqicxuve" = 20
+)
+
+data$age_group <- dplyr::recode(data$age_group,
+  "18 - 34 Years" = 0,
+  "35 - 44 Years" = 1,
+  "45 - 54 Years" = 2,
+  "55 - 64 Years" = 3,
+  "65+ Years" = 4
+)
+
+# Convert all character/integer columns to factors
+data[] <- lapply(data, function(x) {
+  if (is.character(x) || is.integer(x) || is.numeric(x)) as.factor(x) else x
+})
+
+# Check for NA values in the entire dataset
+colSums(is.na(data))
+
+# Check if there are any NULLs (NULLs are rare in data frames but good to check)
+any(sapply(data, is.null))
+
+str(data)
+```
+
+```{r}
+summary(data)
+```
+
+
+```{r}
+library(klaR)
+
+costs <- numeric()
+
+for (k in 1:11) {
+  km <- kmodes(data, modes = k, iter.max = 11, weighted = FALSE)
+  costs[k] <- km$withindiff
+}
+
+plot(1:11, costs, type = "b", pch = 19,
+     xlab = "Number of Clusters (k)", ylab = "Total Within-Cluster Dissimilarity",
+     main = "Elbow Method for K-Modes Clustering", cex.lab = 1, cex.axis = 1.1, font.lab = 2)
+```
+
+```{r}
+# Install and load
+library(klaR)
+
+# Convert factors to characters (required by klaR)
+data_kmodes <- data.frame(lapply(data, as.character))
+
+# Run K-modes with 3 clusters (adjust as needed)
+kmodes_res <- kmodes(data_kmodes, modes = 3, iter.max = 11)
+
+# View cluster sizes
+table(kmodes_res$cluster)
+
+# Add cluster to your data
+data$cluster <- as.factor(kmodes_res$cluster)
+```
+
+```{r}
+# Example: distribution of 'doctor_recc_h1n1' by cluster
+ggplot(data, aes(x = employment_industry, fill = cluster)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Distribution of Employment Industry by Cluster",
+       x = "Employment Industry", y = "Count") +
+  theme_minimal(base_size = 13)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Add cluster assignments to your dataset
+data$cluster <- as.factor(kmodes_res$cluster)
+
+# Define cluster labels manually
+cluster_labels <- c("1" = "Pro-Vaccine", 
+                    "2" = "Neutral", 
+                    "3" = "Skeptical")
+
+# Get the most frequent (mode) value of each variable by cluster
+cluster_modes <- data %>%
+  group_by(cluster) %>%
+  summarise(across(where(is.factor), ~ as.numeric(names(sort(table(.), decreasing = TRUE))[1])))
+
+# Exclude employment_industry
+cluster_modes <- cluster_modes[, !names(cluster_modes) %in% "employment_industry"]
+
+# Convert to long format for plotting
+data_long <- cluster_modes %>%
+  pivot_longer(-cluster, names_to = "Variable", values_to = "ModeValue") %>%
+  mutate(cluster = factor(cluster, labels = cluster_labels[levels(cluster)]))
+
+# Plot
+ggplot(data_long, aes(x = Variable, y = ModeValue, group = cluster, linetype = cluster, color = cluster)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Clusters Profiles",
+    y = "Most Frequent Category",
+    x = NULL,  # Remove x-axis label
+    color = "Clusters",       # NEW legend title for color
+    linetype = "Clusters"     # NEW legend title for linetype
+  ) +
+  scale_color_manual(
+    values = c(
+      "Pro-Vaccine" = "#1f77b4",   # Green
+      "Neutral"     = "#7f7f7f",   # Purple
+      "Skeptical"   = "#d95f02"    # Orange
+    )
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.minor = element_blank(),       # Remove all minor grid lines
+    panel.border = element_blank(),           # No border
+    axis.line = element_line(color = "grey") # Keep axis lines
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5),    # Bold, large, centered title
+    axis.title.y = element_text(face = "bold", size = 14),               # Bold, larger y-axis label
+    axis.title.x = element_text(face = "bold", size = 16),               # (If x-label is later added)
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),        # Resize x-axis ticks
+    axis.text.y = element_text(size = 12)                                # Resize y-axis ticks
+  )
+
+```
+neutral is people that for example got the first shot of covid but then stopped because they believe its not as effective or not important.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Add cluster assignments to your dataset
+data$cluster <- as.factor(kmodes_res$cluster)
+
+# Define cluster labels manually
+cluster_labels <- c("1" = "Pro-Vaccine", 
+                    "2" = "Neutral", 
+                    "3" = "Skeptical")
+
+# Get the mode of each variable by cluster
+cluster_modes <- data %>%
+  group_by(cluster) %>%
+  summarise(across(where(is.factor), ~ as.numeric(names(sort(table(.), decreasing = TRUE))[1])))
+
+# Convert to long format for plotting
+data_long <- cluster_modes %>%
+  pivot_longer(-cluster, names_to = "Variable", values_to = "ModeValue") %>%
+  mutate(cluster = factor(cluster, labels = cluster_labels[levels(cluster)]))
+
+# Plot
+ggplot(data_long, aes(x = Variable, y = ModeValue, group = cluster, linetype = cluster, color = cluster)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Cluster Profiles Across Categorical Variables (K-Modes)",
+    y = "Most Frequent Category (as Numeric Code)",
+    x = NULL  # Remove x-axis label
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title.y = element_text(size = 10)  # Shrink y-axis label font size
+  )
+
+```
+
+```{r}
+# Example: distribution of 'doctor_recc_h1n1' by cluster
+ggplot(data, aes(x = cluster, fill = employment_industry)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Distribution of Employment Industry by Cluster",
+       x = "Employment Industry", y = "Count") +
+  theme_minimal(base_size = 13)
+```
+
+
+```{r}
+ggplot(line_data, aes(x = employment_industry, y = count, group = cluster, color = cluster)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Distribution of Employment Industry by Cluster",
+    x = "Employment Industry", y = "Count", color = "Cluster"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(color = "grey")
+  ) +
+  scale_color_manual(
+    values = c(
+      "Pro-Vaccine" = "#1f77b4",   # Green
+      "Neutral"     = "#7f7f7f",   # Gray
+      "Skeptical"   = "#d95f02"    # Orange
+    )
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+    axis.title.y = element_text(face = "bold", size = 14),
+    axis.title.x = element_text(face = "bold", size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+
+```
+
